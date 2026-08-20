@@ -12,6 +12,37 @@ process runs on a login/head node, polls GitHub for queued workflow jobs, and su
 one short-lived `sbatch` job for each matching queued job. The batch job registers an
 ephemeral GitHub Actions runner, runs one job, then exits and cleans up.
 
+### Flow
+
+```mermaid
+flowchart TD
+    A[GitHub Actions job queued] --> B{Job labels include slurm-runner-*?}
+    B -- No --> C[Leave job queued for other runners]
+    B -- Yes --> D[Poller maps label to resources]
+    D --> E[Create repo runner registration and removal tokens]
+    E --> F[Submit short Spur/Slurm job with sbatch]
+    F --> G[Spur schedules a compute node]
+    G --> H[spur_basic.sh starts on allocated node]
+    H --> I[Download or unpack GitHub Actions runner]
+    I --> J[Register ephemeral self-hosted runner with same labels]
+    J --> K[GitHub assigns a matching queued job to the runner]
+    K --> L[Runner executes workflow steps]
+    L --> M[Runner exits after one job]
+    M --> N[Cleanup runner registration and work directory]
+    N --> O[Spur/Slurm allocation ends]
+
+    P[GitHub App private key] --> Q[Installation token]
+    Q --> D
+    Q --> E
+```
+
+The login/head node process is only a controller: it polls GitHub, filters by
+labels, and submits `sbatch`. It does not reserve compute nodes while idle. Compute
+resources are allocated only after a matching GitHub job is already queued, and
+the allocated job runs exactly one ephemeral GitHub Actions runner. GitHub Actions
+does not let us bind a runner to a specific job id, so the matching contract is
+the `runs-on` label set.
+
 ### 1. Install on the login/head node
 
 ```bash
