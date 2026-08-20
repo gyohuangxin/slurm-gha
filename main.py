@@ -429,7 +429,6 @@ def check_slurm_status():
         sacct_cmd = [
             "sacct",
             "-n",
-            "-P",
             "-o",
             "JobID,State,Start,End",
             "--jobs",
@@ -456,12 +455,16 @@ def check_slurm_status():
                 continue
 
             for line in sacct_output.split("\n"):
-                parts = line.split("|")
-                # Typically lines might look like: 3840|COMPLETED|2025-01-22T10:11:12|2025-01-22T10:16:30
+                parts = line.split()
+                # Typically lines look like:
+                # 3840 COMPLETED 2025-01-22T10:11:12 2025-01-22T10:16:30
                 if len(parts) < 4:
                     continue
 
                 job_component = parts[0]
+                if str(job_component).split(".", 1)[0] != str(running_job.slurm_job_id):
+                    continue
+
                 status = parts[1]
                 start_time_str = parts[2]
                 end_time_str = parts[3]
