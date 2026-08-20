@@ -3,3 +3,112 @@
 [Check out the blog post](https://cloud.watonomous.ca/blog/using-slurm-to-run-github-actions)
 
 The purpose of this project is to run GitHub Actions on prem via our Slurm cluster.
+
+## Spur / Slurm MVP quickstart
+
+This fork includes a minimal polling-based setup for running GitHub Actions jobs on
+a Spur or Slurm cluster without reserving nodes ahead of time. A lightweight Python
+process runs on a login/head node, polls GitHub for queued workflow jobs, and submits
+one short-lived `sbatch` job for each matching queued job. The batch job registers an
+ephemeral GitHub Actions runner, runs one job, then exits and cleans up.
+
+### 1. Install on the login/head node
+
+```bash
+git clone https://github.com/gyohuangxin/slurm-gha.git
+cd slurm-gha
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+```
+
+Edit `.env`:
+
+```bash
+GITHUB_ACCESS_TOKEN=...
+GHA_REPOS=owner/repo
+
+# Optional. Only set this if sbatch/sacct are not already in PATH.
+SLURM_BIN_DIR=/path/to/spur/bin
+
+# Start simple. Add partition/GPU requests once CPU jobs work.
+SBATCH_EXTRA_ARGS="--partition=default"
+```
+
+The GitHub token needs permission to read workflow jobs and create/remove repository
+self-hosted runner registration tokens for each repo in `GHA_REPOS`.
+
+### 2. Add a workflow that targets the Slurm runner
+
+Use a `slurm-runner-*` label so the poller knows this job should be scheduled on
+the cluster:
+
+```yaml
+name: spur-smoke
+
+on:
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: [self-hosted, slurm-runner-small]
+    steps:
+      - run: hostname
+      - run: env | sort | grep -E 'SLURM|SPUR|RUNNER'
+```
+
+The built-in resource labels are:
+
+- `slurm-runner-small`: 1 CPU, 2G per CPU, 30 minutes
+- `slurm-runner-medium`: 2 CPUs, 2G per CPU, 30 minutes
+- `slurm-runner-large`: 4 CPUs, 2G per CPU, 30 minutes
+- `slurm-runner-xlarge`: 16 CPUs, 2G per CPU, 30 minutes
+- `slurm-runner-medium-long-running`: 4 CPUs, 2G per CPU, 6 hours
+
+Custom labels are also supported:
+
+```text
+slurm-runner-4cpu-8mempercpu-01:00:00time
+```
+
+### 3. Run the poller
+
+```bash
+. .venv/bin/activate
+python main.py
+```
+
+When a queued GitHub Actions job has a matching `slurm-runner*` label, the poller
+submits an `sbatch --parsable ... allocation_scripts/spur_basic.sh ...` command.
+The runner logs are written under `SLURM_LOG_DIR`, which defaults to `logs`.
+
+### 4. GPU / Spur examples
+
+Keep GPU requirements in `SBATCH_EXTRA_ARGS` while you are validating the setup:
+
+```bash
+SBATCH_EXTRA_ARGS="--partition=gpu --gres=gpu:mi300x:1"
+```
+
+Then use the same GitHub label:
+
+```yaml
+runs-on: [self-hosted, slurm-runner-small]
+```
+
+After the MVP works, move GPU-specific mappings into `runner_size_config.py` or
+split them by labels such as `slurm-runner-mi300x-small`.
+
+### Notes
+
+- GitHub Actions does not have Buildkite-style `--acquire-job <id>` semantics.
+  Runners match jobs by labels. Keep labels specific enough that an ephemeral
+  runner is unlikely to pick up unrelated work.
+- `allocation_scripts/spur_basic.sh` does not start Docker. It is intended for
+  smoke tests and workflows that can run directly on the allocated node. Use or
+  adapt the Docker/Apptainer allocation scripts if your workflows require Docker
+  actions or service containers.
+- The default `ACTIONS_RUNNER_VERSION` is configurable in `.env`. You can also
+  point `ACTIONS_RUNNER_TARBALL` at a pre-downloaded runner archive if compute
+  nodes do not have internet access.

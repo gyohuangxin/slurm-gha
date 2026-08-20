@@ -1,5 +1,6 @@
 import logging
 import os
+from pathlib import Path
 import subprocess
 import sys
 import threading
@@ -9,7 +10,15 @@ from datetime import datetime
 import requests
 from dotenv import load_dotenv
 
-from config import ALLOCATE_RUNNER_SCRIPT_PATH, REPOS_TO_MONITOR
+from config import (
+    ALLOCATE_RUNNER_SCRIPT_PATH,
+    INCLUDE_TMPDISK_GRES,
+    REPOS_TO_MONITOR,
+    RESOURCE_LABEL_PREFIX,
+    SBATCH_EXTRA_ARGS,
+    SLURM_BIN_DIR,
+    SLURM_LOG_DIR,
+)
 from KubernetesLogFormatter import KubernetesLogFormatter
 from runner_size_config import get_runner_resources
 from config import NETWORK_TIMEOUT, SLURM_COMMAND_TIMEOUT, THREAD_SLEEP_TIMEOUT
@@ -39,8 +48,14 @@ logger.addHandler(stderr_handler)
 # Load GitHub access token from .env file
 # Only secret required is the GitHub access token
 load_dotenv()
-GITHUB_ACCESS_TOKEN = os.getenv("GITHUB_ACCESS_TOKEN").strip()
-os.environ["PATH"] = "/opt/slurm/bin:" + os.environ["PATH"]
+GITHUB_ACCESS_TOKEN = (os.getenv("GITHUB_ACCESS_TOKEN") or "").strip()
+if SLURM_BIN_DIR:
+    os.environ["PATH"] = SLURM_BIN_DIR + ":" + os.environ["PATH"]
+
+BASE_DIR = Path(__file__).resolve().parent
+ALLOCATE_RUNNER_SCRIPT = Path(ALLOCATE_RUNNER_SCRIPT_PATH)
+if not ALLOCATE_RUNNER_SCRIPT.is_absolute():
+    ALLOCATE_RUNNER_SCRIPT = BASE_DIR / ALLOCATE_RUNNER_SCRIPT
 
 
 # All ephemeral runner allocations, keyed by (repo_name, job_id).
@@ -49,6 +64,22 @@ allocated_jobs = {}
 
 # A small flag used for logging "Polling for queued workflows..." only when we don't allocate anything.
 POLLED_WITHOUT_ALLOCATING = False
+
+
+def find_runner_size_label(labels):
+    for label in labels:
+        if label == RESOURCE_LABEL_PREFIX or label.startswith(f"{RESOURCE_LABEL_PREFIX}-"):
+            return label
+    return None
+
+
+def parse_sbatch_job_id(output):
+    output = output.strip()
+    if not output:
+        raise ValueError("empty sbatch output")
+    # Slurm and Spur both support --parsable. Some schedulers append extra fields
+    # separated by semicolons; keep the numeric job id only.
+    return int(output.splitlines()[-1].split(";")[0].split()[-1])
 
 
 def get_gh_api(url, token, etag=None):
@@ -285,7 +316,6 @@ def allocate_actions_runner(job_id, token, repo_api_base_url, repo_url, repo_nam
 
         logger.info(f"Job {job_id} labels: {labels}")
 
-        run_id = job_data["run_id"]
         allocated_jobs[(repo_name, job_id)] = RunningJob(
             repo=repo_name,
             job_id=job_id,
@@ -295,32 +325,42 @@ def allocate_actions_runner(job_id, token, repo_api_base_url, repo_url, repo_nam
             labels=labels,
         )
 
-        runner_size_label = labels[0]
+        runner_size_label = find_runner_size_label(labels)
 
-        if "slurm-runner" not in runner_size_label:
-            logger.info("Skipping job because it is not labeled for slurm-runner.")
+        if runner_size_label is None:
+            logger.info(
+                f"Skipping job because it has no {RESOURCE_LABEL_PREFIX} resource label."
+            )
             del allocated_jobs[(repo_name, job_id)]
             return False
 
         logger.info(f"Using runner size label: {runner_size_label}")
         runner_resources = get_runner_resources(runner_size_label)
+        os.makedirs(SLURM_LOG_DIR, exist_ok=True)
 
         # sbatch resource allocation command
         command = [
             "sbatch",
-            "--output=/var/log/slurm-ci/slurm-ci-%j.out",
-            f"--job-name=slurm-{runner_size_label}-{job_id}",
+            "--parsable",
+            f"--output={SLURM_LOG_DIR}/gha-%j.out",
+            f"--job-name=gha-{runner_size_label}-{job_id}",
             f"--mem-per-cpu={runner_resources['mem-per-cpu']}",
             f"--cpus-per-task={runner_resources['cpu']}",
-            f"--gres=tmpdisk:{runner_resources['tmpdisk']}",
             f"--time={runner_resources['time']}",
-            ALLOCATE_RUNNER_SCRIPT_PATH,  # allocate-ephemeral-runner-from-docker.sh
-            repo_url,
-            registration_token,
-            removal_token,
-            ",".join(labels),
-            str(run_id),
         ]
+        if INCLUDE_TMPDISK_GRES and runner_resources.get("tmpdisk"):
+            command.append(f"--gres=tmpdisk:{runner_resources['tmpdisk']}")
+        command.extend(SBATCH_EXTRA_ARGS)
+        command.extend(
+            [
+                str(ALLOCATE_RUNNER_SCRIPT),
+                repo_url,
+                registration_token,
+                removal_token,
+                ",".join(labels),
+                str(job_id),
+            ]
+        )
 
         logger.info(f"Running command: {' '.join(command)}")
         try:
@@ -336,7 +376,7 @@ def allocate_actions_runner(job_id, token, repo_api_base_url, repo_url, repo_nam
             # Attempt to parse the SLURM job ID from output (e.g. "Submitted batch job 3828")
             if result.returncode == 0:
                 try:
-                    slurm_job_id = int(output.split()[-1])
+                    slurm_job_id = parse_sbatch_job_id(output)
                     # Store the SLURM job ID in allocated_jobs
                     allocated_jobs[(repo_name, job_id)] = RunningJob(
                         repo=repo_name,
@@ -497,15 +537,24 @@ def poll_slurm_statuses(sleep_time=THREAD_SLEEP_TIMEOUT):
 
 
 if __name__ == "__main__":
+    if not GITHUB_ACCESS_TOKEN:
+        raise RuntimeError("GITHUB_ACCESS_TOKEN is required")
+    if not REPOS_TO_MONITOR:
+        raise RuntimeError("Set GHA_REPOS to one or more owner/repo values")
+    if not ALLOCATE_RUNNER_SCRIPT.exists():
+        raise RuntimeError(f"Runner allocation script not found: {ALLOCATE_RUNNER_SCRIPT}")
+
     logger.info("Starting SLURM GitHub Actions runner with timeout configurations:")
     logger.info(f"  Network timeout: {NETWORK_TIMEOUT}s")
     logger.info(f"  SLURM command timeout: {SLURM_COMMAND_TIMEOUT}s")
     logger.info(f"  Thread sleep timeout: {THREAD_SLEEP_TIMEOUT}s")
+    logger.info(f"  Repositories: {[repo['name'] for repo in REPOS_TO_MONITOR]}")
+    logger.info(f"  Runner allocation script: {ALLOCATE_RUNNER_SCRIPT}")
 
     # Thread to poll GitHub for new queued workflows
     github_thread = threading.Thread(
         target=poll_github_actions_and_allocate_runners,
-        args=(GITHUB_ACCESS_TOKEN, 2),
+        args=(GITHUB_ACCESS_TOKEN, THREAD_SLEEP_TIMEOUT),
         name="GitHub-Poller",
     )
 

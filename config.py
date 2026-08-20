@@ -1,16 +1,48 @@
-GITHUB_API_BASE_URL = "https://api.github.com/repos/WATonomous/infra-config"
-GITHUB_REPO_URL = "https://github.com/WATonomous/infra-config"
-ALLOCATE_RUNNER_SCRIPT_PATH = "apptainer.sh"  # relative path from '/allocation_script'
+import os
+import shlex
+
+
+def env_bool(name, default=False):
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.lower() in ("1", "true", "yes", "on")
+
+
+def env_int(name, default):
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return int(value)
+
+
+def parse_repos():
+    repos = os.getenv("GHA_REPOS", os.getenv("GITHUB_REPOSITORY", ""))
+    entries = []
+    for repo in [item.strip() for item in repos.split(",") if item.strip()]:
+        entries.append(
+            {
+                "name": repo,
+                "api_base_url": f"https://api.github.com/repos/{repo}",
+                "repo_url": f"https://github.com/{repo}",
+            }
+        )
+    return entries
+
+
+ALLOCATE_RUNNER_SCRIPT_PATH = os.getenv(
+    "ALLOCATE_RUNNER_SCRIPT_PATH", "allocation_scripts/spur_basic.sh"
+)
 
 # Timeout configurations
-NETWORK_TIMEOUT = 30  # seconds for HTTP requests (GitHub API calls)
-SLURM_COMMAND_TIMEOUT = 60  # seconds for SLURM commands (sbatch, sacct, etc.)
-THREAD_SLEEP_TIMEOUT = 5  # seconds between polling cycles for threads
+NETWORK_TIMEOUT = env_int("NETWORK_TIMEOUT", 30)
+SLURM_COMMAND_TIMEOUT = env_int("SLURM_COMMAND_TIMEOUT", 60)
+THREAD_SLEEP_TIMEOUT = env_int("THREAD_SLEEP_TIMEOUT", 10)
 
-REPOS_TO_MONITOR = [
-    {
-        "name": "WATonomous/infra-config",
-        "api_base_url": "https://api.github.com/repos/WATonomous/infra-config",
-        "repo_url": "https://github.com/WATonomous/infra-config",
-    },
-]
+SLURM_BIN_DIR = os.getenv("SLURM_BIN_DIR", "")
+SLURM_LOG_DIR = os.getenv("SLURM_LOG_DIR", "logs")
+RESOURCE_LABEL_PREFIX = os.getenv("RESOURCE_LABEL_PREFIX", "slurm-runner")
+INCLUDE_TMPDISK_GRES = env_bool("INCLUDE_TMPDISK_GRES", False)
+SBATCH_EXTRA_ARGS = shlex.split(os.getenv("SBATCH_EXTRA_ARGS", ""))
+
+REPOS_TO_MONITOR = parse_repos()
