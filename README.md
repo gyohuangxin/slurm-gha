@@ -53,6 +53,64 @@ If your environment permits personal access tokens, `GITHUB_ACCESS_TOKEN` is sti
 supported as a fallback. GitHub App credentials take over automatically when
 `GITHUB_ACCESS_TOKEN` is empty.
 
+Example `.env` for the ROCm Repo Management API 7 GitHub App:
+
+```env
+# GitHub App auth
+GITHUB_APP_ID=1748281
+GITHUB_APP_INSTALLATION_ID=79856739
+GITHUB_APP_PRIVATE_KEY_PATH=/home/xihuang/secrets/rocm-repo-api-github-app-7.pem
+GITHUB_ACCESS_TOKEN=
+
+# Repositories to monitor. Use commas for multiple repositories.
+GHA_REPOS=ROCm/rocOps
+
+# Spur / Slurm
+SLURM_BIN_DIR=
+SBATCH_EXTRA_ARGS="--partition=default"
+SLURM_LOG_DIR=logs
+
+# Poller settings
+NETWORK_TIMEOUT=30
+SLURM_COMMAND_TIMEOUT=60
+THREAD_SLEEP_TIMEOUT=10
+RESOURCE_LABEL_PREFIX=slurm-runner
+INCLUDE_TMPDISK_GRES=false
+
+# Runner package
+ACTIONS_RUNNER_PLATFORM=linux-x64
+ACTIONS_RUNNER_VERSION=latest
+GHA_RUNNER_WORK_ROOT=/tmp/gha-runners
+```
+
+Keep the private key in a separate PEM file rather than embedding it in `.env`:
+
+```bash
+mkdir -p ~/secrets
+vi ~/secrets/rocm-repo-api-github-app-7.pem
+chmod 600 ~/secrets/rocm-repo-api-github-app-7.pem
+```
+
+The PEM file should keep the downloaded GitHub App private key as-is:
+
+```text
+-----BEGIN RSA PRIVATE KEY-----
+...
+-----END RSA PRIVATE KEY-----
+```
+
+You can test authentication before starting the poller:
+
+```bash
+python3 -c 'from dotenv import load_dotenv; load_dotenv(); from github_auth import GitHubAuth; print(GitHubAuth.from_env().headers()["Authorization"][:24])'
+```
+
+Expected output starts with:
+
+```text
+Bearer ghs_
+```
+
 ### 2. Add a workflow that targets the Slurm runner
 
 Use a `slurm-runner-*` label so the poller knows this job should be scheduled on
