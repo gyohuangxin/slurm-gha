@@ -248,51 +248,6 @@ def allocate_actions_runner(job_id, github_auth, repo_api_base_url, repo_url, re
     POLLED_WITHOUT_ALLOCATING = False
 
     try:
-        # Get registration token
-        headers = github_auth.headers()
-
-        reg_url = f"{repo_api_base_url}/actions/runners/registration-token"
-        remove_url = f"{repo_api_base_url}/actions/runners/remove-token"
-
-        try:
-            reg_resp = requests.post(reg_url, headers=headers, timeout=NETWORK_TIMEOUT)
-            reg_resp.raise_for_status()
-            reg_data = reg_resp.json()
-            registration_token = reg_data["token"]
-            logger.debug("Successfully obtained registration token")
-        except requests.exceptions.Timeout:
-            logger.error(
-                f"Registration token request timed out after {NETWORK_TIMEOUT} seconds"
-            )
-            del allocated_jobs[(repo_name, job_id)]
-            return False
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to get registration token: {e}")
-            del allocated_jobs[(repo_name, job_id)]
-            return False
-
-        # recommended small delay https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api?apiVersion=2022-11-28#pause-between-mutative-requests
-        time.sleep(1)
-
-        # Get removal token
-        try:
-            remove_resp = requests.post(
-                remove_url, headers=headers, timeout=NETWORK_TIMEOUT
-            )
-            remove_resp.raise_for_status()
-            remove_data = remove_resp.json()
-            removal_token = remove_data["token"]
-        except requests.exceptions.Timeout:
-            logger.error(
-                f"Removal token request timed out after {NETWORK_TIMEOUT} seconds"
-            )
-            del allocated_jobs[(repo_name, job_id)]
-            return False
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to get removal token: {e}")
-            del allocated_jobs[(repo_name, job_id)]
-            return False
-
         # Get job details to see labels
         job_api_url = f"{repo_api_base_url}/actions/jobs/{job_id}"
         job_data, _ = get_gh_api(job_api_url, github_auth)
@@ -330,6 +285,49 @@ def allocate_actions_runner(job_id, github_auth, repo_api_base_url, repo_url, re
         logger.info(f"Using runner size label: {runner_size_label}")
         runner_resources = get_runner_resources(runner_size_label)
         os.makedirs(SLURM_LOG_DIR, exist_ok=True)
+
+        # Create runner tokens only after confirming this job targets Slurm.
+        headers = github_auth.headers()
+        reg_url = f"{repo_api_base_url}/actions/runners/registration-token"
+        remove_url = f"{repo_api_base_url}/actions/runners/remove-token"
+
+        try:
+            reg_resp = requests.post(reg_url, headers=headers, timeout=NETWORK_TIMEOUT)
+            reg_resp.raise_for_status()
+            reg_data = reg_resp.json()
+            registration_token = reg_data["token"]
+            logger.debug("Successfully obtained registration token")
+        except requests.exceptions.Timeout:
+            logger.error(
+                f"Registration token request timed out after {NETWORK_TIMEOUT} seconds"
+            )
+            del allocated_jobs[(repo_name, job_id)]
+            return False
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to get registration token: {e}")
+            del allocated_jobs[(repo_name, job_id)]
+            return False
+
+        # Recommended small delay between mutative GitHub REST API requests.
+        time.sleep(1)
+
+        try:
+            remove_resp = requests.post(
+                remove_url, headers=headers, timeout=NETWORK_TIMEOUT
+            )
+            remove_resp.raise_for_status()
+            remove_data = remove_resp.json()
+            removal_token = remove_data["token"]
+        except requests.exceptions.Timeout:
+            logger.error(
+                f"Removal token request timed out after {NETWORK_TIMEOUT} seconds"
+            )
+            del allocated_jobs[(repo_name, job_id)]
+            return False
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to get removal token: {e}")
+            del allocated_jobs[(repo_name, job_id)]
+            return False
 
         # sbatch resource allocation command
         command = [
