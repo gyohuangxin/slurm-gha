@@ -22,6 +22,7 @@ from config import (
 from KubernetesLogFormatter import KubernetesLogFormatter
 from runner_size_config import get_runner_resources
 from config import NETWORK_TIMEOUT, SLURM_COMMAND_TIMEOUT, THREAD_SLEEP_TIMEOUT
+from github_auth import GitHubAuth
 from RunningJob import RunningJob
 
 logger = logging.getLogger()
@@ -45,10 +46,8 @@ logger.setLevel(logging.DEBUG)
 logger.addHandler(stdout_handler)
 logger.addHandler(stderr_handler)
 
-# Load GitHub access token from .env file
-# Only secret required is the GitHub access token
 load_dotenv()
-GITHUB_ACCESS_TOKEN = (os.getenv("GITHUB_ACCESS_TOKEN") or "").strip()
+GITHUB_AUTH = GitHubAuth.from_env()
 if SLURM_BIN_DIR:
     os.environ["PATH"] = SLURM_BIN_DIR + ":" + os.environ["PATH"]
 
@@ -82,17 +81,14 @@ def parse_sbatch_job_id(output):
     return int(output.splitlines()[-1].split(";")[0].split()[-1])
 
 
-def get_gh_api(url, token, etag=None):
+def get_gh_api(url, github_auth, etag=None):
     """
     Sends a GET request to the GitHub API with the given URL and access token.
     If rate limit is exceeded, the function waits until the rate limit is reset and retries.
     Returns: (json_data, new_etag) or (None, etag)
     """
     try:
-        headers = {
-            "Authorization": f"token {token}",
-            "Accept": "application/vnd.github.v3+json",
-        }
+        headers = github_auth.headers()
         if etag:
             headers["If-None-Match"] = etag
 
@@ -120,7 +116,7 @@ def get_gh_api(url, token, etag=None):
             )  # Adding 1 second to ensure the reset has occurred
             logger.warning(f"Rate limit exceeded. Waiting for {sleep_time} seconds.")
             time.sleep(sleep_time)
-            return get_gh_api(url, token, etag)  # Retry the request
+            return get_gh_api(url, github_auth, etag)  # Retry the request
         else:
             logger.error(f"Unexpected status code: {response.status_code}")
             return None, etag
@@ -137,7 +133,7 @@ def get_gh_api(url, token, etag=None):
     return None, etag
 
 
-def poll_github_actions_and_allocate_runners(token, sleep_time=THREAD_SLEEP_TIMEOUT):
+def poll_github_actions_and_allocate_runners(github_auth, sleep_time=THREAD_SLEEP_TIMEOUT):
     """
     Polls each repository in REPOS_TO_MONITOR for queued workflows, then tries
     to allocate ephemeral runners.
@@ -152,12 +148,12 @@ def poll_github_actions_and_allocate_runners(token, sleep_time=THREAD_SLEEP_TIME
 
             for repo in REPOS_TO_MONITOR:
                 queued_url = f"{repo['api_base_url']}/actions/runs?status=queued"
-                data, _ = get_gh_api(queued_url, token)
+                data, _ = get_gh_api(queued_url, github_auth)
 
                 if data:
                     new_allocations = allocate_runners_for_jobs(
                         workflow_data=data,
-                        token=token,
+                        github_auth=github_auth,
                         repo_api_base_url=repo["api_base_url"],
                         repo_url=repo["repo_url"],
                         repo_name=repo["name"],
@@ -174,7 +170,7 @@ def poll_github_actions_and_allocate_runners(token, sleep_time=THREAD_SLEEP_TIME
         time.sleep(sleep_time)
 
 
-def get_all_jobs(workflow_id, token, repo_api_base_url):
+def get_all_jobs(workflow_id, github_auth, repo_api_base_url):
     """
     Get all CI jobs for a given workflow ID by paginating through the GitHub API.
     """
@@ -186,7 +182,7 @@ def get_all_jobs(workflow_id, token, repo_api_base_url):
         url = f"{repo_api_base_url}/actions/runs/{workflow_id}/jobs"
         url += f"?per_page={per_page}&page={page}"
 
-        job_data, _ = get_gh_api(url, token)
+        job_data, _ = get_gh_api(url, github_auth)
         if job_data and "jobs" in job_data:
             all_jobs.extend(job_data["jobs"])
             if len(job_data["jobs"]) < per_page:
@@ -200,7 +196,7 @@ def get_all_jobs(workflow_id, token, repo_api_base_url):
 
 
 def allocate_runners_for_jobs(
-    workflow_data, token, repo_api_base_url, repo_url, repo_name
+    workflow_data, github_auth, repo_api_base_url, repo_url, repo_name
 ):
     """
     For each queued job in a workflow, allocate the ephemeral SLURM runner if appropriate.
@@ -216,7 +212,7 @@ def allocate_runners_for_jobs(
 
     for i in range(number_of_queued_workflows):
         workflow_id = workflow_data["workflow_runs"][i]["id"]
-        job_data = get_all_jobs(workflow_id, token, repo_api_base_url)
+        job_data = get_all_jobs(workflow_id, github_auth, repo_api_base_url)
         if not job_data:
             continue
 
@@ -225,7 +221,7 @@ def allocate_runners_for_jobs(
                 queued_job_id = job["id"]
                 allocated = allocate_actions_runner(
                     job_id=queued_job_id,
-                    token=token,
+                    github_auth=github_auth,
                     repo_api_base_url=repo_api_base_url,
                     repo_url=repo_url,
                     repo_name=repo_name,
@@ -236,7 +232,7 @@ def allocate_runners_for_jobs(
     return new_allocations
 
 
-def allocate_actions_runner(job_id, token, repo_api_base_url, repo_url, repo_name):
+def allocate_actions_runner(job_id, github_auth, repo_api_base_url, repo_url, repo_name):
     """
     Allocates a runner for the given job ID. Returns True if successful, False otherwise.
     """
@@ -253,10 +249,7 @@ def allocate_actions_runner(job_id, token, repo_api_base_url, repo_url, repo_nam
 
     try:
         # Get registration token
-        headers = {
-            "Authorization": f"token {token}",
-            "Accept": "application/vnd.github.v3+json",
-        }
+        headers = github_auth.headers()
 
         reg_url = f"{repo_api_base_url}/actions/runners/registration-token"
         remove_url = f"{repo_api_base_url}/actions/runners/remove-token"
@@ -302,7 +295,7 @@ def allocate_actions_runner(job_id, token, repo_api_base_url, repo_url, repo_nam
 
         # Get job details to see labels
         job_api_url = f"{repo_api_base_url}/actions/jobs/{job_id}"
-        job_data, _ = get_gh_api(job_api_url, token)
+        job_data, _ = get_gh_api(job_api_url, github_auth)
         if not job_data:
             logger.error(f"Failed to retrieve job data for job_id {job_id}")
             del allocated_jobs[(repo_name, job_id)]
@@ -537,8 +530,6 @@ def poll_slurm_statuses(sleep_time=THREAD_SLEEP_TIMEOUT):
 
 
 if __name__ == "__main__":
-    if not GITHUB_ACCESS_TOKEN:
-        raise RuntimeError("GITHUB_ACCESS_TOKEN is required")
     if not REPOS_TO_MONITOR:
         raise RuntimeError("Set GHA_REPOS to one or more owner/repo values")
     if not ALLOCATE_RUNNER_SCRIPT.exists():
@@ -554,7 +545,7 @@ if __name__ == "__main__":
     # Thread to poll GitHub for new queued workflows
     github_thread = threading.Thread(
         target=poll_github_actions_and_allocate_runners,
-        args=(GITHUB_ACCESS_TOKEN, THREAD_SLEEP_TIMEOUT),
+        args=(GITHUB_AUTH, THREAD_SLEEP_TIMEOUT),
         name="GitHub-Poller",
     )
 

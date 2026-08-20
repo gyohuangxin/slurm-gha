@@ -1,6 +1,11 @@
 import os
 import shlex
 
+from dotenv import load_dotenv
+
+
+load_dotenv()
+
 
 def env_bool(name, default=False):
     value = os.getenv(name)

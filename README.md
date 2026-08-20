@@ -26,7 +26,9 @@ cp .env.example .env
 Edit `.env`:
 
 ```bash
-GITHUB_ACCESS_TOKEN=...
+GITHUB_APP_ID=...
+GITHUB_APP_INSTALLATION_ID=...
+GITHUB_APP_PRIVATE_KEY_PATH=/secure/path/to/app.private-key.pem
 GHA_REPOS=owner/repo
 
 # Optional. Only set this if sbatch/sacct are not already in PATH.
@@ -36,8 +38,20 @@ SLURM_BIN_DIR=/path/to/spur/bin
 SBATCH_EXTRA_ARGS="--partition=default"
 ```
 
-The GitHub token needs permission to read workflow jobs and create/remove repository
-self-hosted runner registration tokens for each repo in `GHA_REPOS`.
+The recommended authentication mode is a GitHub App installed on each repository
+in `GHA_REPOS`. Configure the App with repository permissions:
+
+- `Actions`: read and write
+- `Administration`: read and write
+- `Metadata`: read-only
+
+Then install the App on the target repositories, download the App private key, and
+set `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, and
+`GITHUB_APP_PRIVATE_KEY_PATH` in `.env`.
+
+If your environment permits personal access tokens, `GITHUB_ACCESS_TOKEN` is still
+supported as a fallback. GitHub App credentials take over automatically when
+`GITHUB_ACCESS_TOKEN` is empty.
 
 ### 2. Add a workflow that targets the Slurm runner
 
