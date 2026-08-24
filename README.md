@@ -60,7 +60,7 @@ Edit `.env`:
 GITHUB_APP_ID=...
 GITHUB_APP_INSTALLATION_ID=...
 GITHUB_APP_PRIVATE_KEY_PATH=/secure/path/to/app.private-key.pem
-GHA_REPOS=owner/repo
+GHA_REPOS=ROCm/ATOM
 
 # Optional. Only set this if sbatch/sacct are not already in PATH.
 SLURM_BIN_DIR=/path/to/spur/bin
@@ -84,17 +84,17 @@ If your environment permits personal access tokens, `GITHUB_ACCESS_TOKEN` is sti
 supported as a fallback. GitHub App credentials take over automatically when
 `GITHUB_ACCESS_TOKEN` is empty.
 
-Example `.env` for the ROCm Repo Management API 7 GitHub App:
+Example `.env` for a GitHub App installed on `ROCm/ATOM`:
 
 ```env
 # GitHub App auth
-GITHUB_APP_ID=1748281
-GITHUB_APP_INSTALLATION_ID=79856739
-GITHUB_APP_PRIVATE_KEY_PATH=/home/xihuang/secrets/rocm-repo-api-github-app-7.pem
+GITHUB_APP_ID=<github-app-id>
+GITHUB_APP_INSTALLATION_ID=<github-app-installation-id>
+GITHUB_APP_PRIVATE_KEY_PATH=/secure/path/to/github-app.private-key.pem
 GITHUB_ACCESS_TOKEN=
 
 # Repositories to monitor. Use commas for multiple repositories.
-GHA_REPOS=ROCm/rocOps
+GHA_REPOS=ROCm/ATOM
 
 # Spur / Slurm
 SLURM_BIN_DIR=
@@ -118,8 +118,8 @@ Keep the private key in a separate PEM file rather than embedding it in `.env`:
 
 ```bash
 mkdir -p ~/secrets
-vi ~/secrets/rocm-repo-api-github-app-7.pem
-chmod 600 ~/secrets/rocm-repo-api-github-app-7.pem
+vi ~/secrets/github-app.private-key.pem
+chmod 600 ~/secrets/github-app.private-key.pem
 ```
 
 The PEM file should keep the downloaded GitHub App private key as-is:
