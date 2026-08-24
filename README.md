@@ -142,23 +142,25 @@ Expected output starts with:
 Bearer ghs_
 ```
 
-### 2. Add a workflow that targets the Slurm runner
+### 2. Add a workflow that targets the Slurm GPU runner
 
 Use a `slurm-runner-*` label so the poller knows this job should be scheduled on
-the cluster:
+the cluster. GPU labels encode the GPU count, and the poller converts them into
+the matching Slurm `--gres` request.
 
 ```yaml
-name: spur-smoke
+name: spur-gpu-smoke
 
 on:
   workflow_dispatch:
 
 jobs:
-  smoke:
-    runs-on: [self-hosted, slurm-runner-small]
+  smoke-1gpu:
+    runs-on: [self-hosted, slurm-runner-mi355x-1gpu]
     steps:
       - run: hostname
       - run: env | sort | grep -E 'SLURM|SPUR|RUNNER'
+      - run: rocm-smi || true
 ```
 
 The built-in resource labels are:
@@ -168,6 +170,18 @@ The built-in resource labels are:
 - `slurm-runner-large`: 4 CPUs, 2G per CPU, 30 minutes
 - `slurm-runner-xlarge`: 16 CPUs, 2G per CPU, 30 minutes
 - `slurm-runner-medium-long-running`: 4 CPUs, 2G per CPU, 6 hours
+- `slurm-runner-mi355x-1gpu`: 1 MI355X GPU, 16 CPUs, 2G per CPU, 30 minutes
+- `slurm-runner-mi355x-2gpu`: 2 MI355X GPUs, 32 CPUs, 2G per CPU, 30 minutes
+- `slurm-runner-mi355x-4gpu`: 4 MI355X GPUs, 64 CPUs, 2G per CPU, 30 minutes
+- `slurm-runner-mi355x-8gpu`: 8 MI355X GPUs, 128 CPUs, 2G per CPU, 30 minutes
+
+Use the same workflow shape for larger jobs by changing the runner label:
+
+```yaml
+runs-on: [self-hosted, slurm-runner-mi355x-2gpu]
+runs-on: [self-hosted, slurm-runner-mi355x-4gpu]
+runs-on: [self-hosted, slurm-runner-mi355x-8gpu]
+```
 
 Custom labels are also supported:
 
@@ -186,22 +200,30 @@ When a queued GitHub Actions job has a matching `slurm-runner*` label, the polle
 submits an `sbatch --parsable ... allocation_scripts/spur_basic.sh ...` command.
 The runner logs are written under `SLURM_LOG_DIR`, which defaults to `logs`.
 
-### 4. GPU / Spur examples
+### 4. Spur partition examples
 
-Keep GPU requirements in `SBATCH_EXTRA_ARGS` while you are validating the setup:
+Keep cluster-level Slurm options in `SBATCH_EXTRA_ARGS`, such as partition,
+account, or QoS. GPU count should normally come from the `slurm-runner-mi355x-*gpu`
+label.
 
 ```bash
-SBATCH_EXTRA_ARGS="--partition=gpu --gres=gpu:mi300x:1"
+SBATCH_EXTRA_ARGS="--partition=default"
 ```
 
-Then use the same GitHub label:
+For the non-v2 Spur cluster, use:
+
+```bash
+SBATCH_EXTRA_ARGS="--partition=amd-spur"
+```
+
+Then choose the GPU count in the workflow label:
 
 ```yaml
-runs-on: [self-hosted, slurm-runner-small]
+runs-on: [self-hosted, slurm-runner-mi355x-8gpu]
 ```
 
-After the MVP works, move GPU-specific mappings into `runner_size_config.py` or
-split them by labels such as `slurm-runner-mi300x-small`.
+If a cluster uses a different GRES name, update the GPU mappings in
+`runner_size_config.py`.
 
 ### Notes
 

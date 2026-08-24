@@ -339,8 +339,13 @@ def allocate_actions_runner(job_id, github_auth, repo_api_base_url, repo_url, re
             f"--cpus-per-task={runner_resources['cpu']}",
             f"--time={runner_resources['time']}",
         ]
+        gres_requests = []
+        if runner_resources.get("gres"):
+            gres_requests.append(runner_resources["gres"])
         if INCLUDE_TMPDISK_GRES and runner_resources.get("tmpdisk"):
-            command.append(f"--gres=tmpdisk:{runner_resources['tmpdisk']}")
+            gres_requests.append(f"tmpdisk:{runner_resources['tmpdisk']}")
+        if gres_requests:
+            command.append(f"--gres={','.join(gres_requests)}")
         command.extend(SBATCH_EXTRA_ARGS)
         command.extend(
             [

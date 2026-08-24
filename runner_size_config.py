@@ -39,6 +39,38 @@ def get_runner_resources(runner_label):
             "tmpdisk": TMPDISK_DEFAULT,
             "time": "06:00:00",
         }
+    elif runner_label == "slurm-runner-mi355x-1gpu":
+        return {
+            "cpu": 16,
+            "mem-per-cpu": "2G",
+            "tmpdisk": TMPDISK_DEFAULT,
+            "time": "00:30:00",
+            "gres": "gpu:mi355x:1",
+        }
+    elif runner_label == "slurm-runner-mi355x-2gpu":
+        return {
+            "cpu": 32,
+            "mem-per-cpu": "2G",
+            "tmpdisk": TMPDISK_DEFAULT,
+            "time": "00:30:00",
+            "gres": "gpu:mi355x:2",
+        }
+    elif runner_label == "slurm-runner-mi355x-4gpu":
+        return {
+            "cpu": 64,
+            "mem-per-cpu": "2G",
+            "tmpdisk": TMPDISK_DEFAULT,
+            "time": "00:30:00",
+            "gres": "gpu:mi355x:4",
+        }
+    elif runner_label == "slurm-runner-mi355x-8gpu":
+        return {
+            "cpu": 128,
+            "mem-per-cpu": "2G",
+            "tmpdisk": TMPDISK_DEFAULT,
+            "time": "00:30:00",
+            "gres": "gpu:mi355x:8",
+        }
     elif runner_label.startswith("slurm-runner-"):
         # expiremental custom sized runners
         # format the label as slurm-runner-4cpu-2mempercpu-30:00time-16tmpdisk
