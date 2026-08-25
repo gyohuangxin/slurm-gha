@@ -358,7 +358,14 @@ def allocate_actions_runner(job_id, github_auth, repo_api_base_url, repo_url, re
             ]
         )
 
-        logger.info(f"Running command: {' '.join(command)}")
+        log_command = list(command)
+        try:
+            script_idx = log_command.index(str(ALLOCATE_RUNNER_SCRIPT))
+            log_command[script_idx + 2] = "<registration-token>"
+            log_command[script_idx + 3] = "<removal-token>"
+        except (ValueError, IndexError):
+            pass
+        logger.info(f"Running command: {' '.join(log_command)}")
         try:
             result = subprocess.run(
                 command, capture_output=True, text=True, timeout=SLURM_COMMAND_TIMEOUT

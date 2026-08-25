@@ -64,6 +64,13 @@ fi
 
 export RUNNER_ALLOW_RUNASROOT=${RUNNER_ALLOW_RUNASROOT:-1}
 
+# The Slurm job inherits the controller environment by default. Do not expose
+# controller credentials to the GitHub Actions job environment.
+unset GITHUB_APP_ID
+unset GITHUB_APP_INSTALLATION_ID
+unset GITHUB_APP_PRIVATE_KEY_PATH
+unset GITHUB_ACCESS_TOKEN
+
 log "Registering runner ${RUNNER_NAME} with labels ${LABELS}"
 ./config.sh \
     --work "$WORK_DIR" \
