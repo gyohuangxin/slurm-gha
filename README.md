@@ -65,8 +65,11 @@ GHA_REPOS=ROCm/ATOM
 # Optional. Only set this if sbatch/sacct are not already in PATH.
 SLURM_BIN_DIR=/path/to/spur/bin
 
-# Start simple. Add partition/GPU requests once CPU jobs work.
-SBATCH_EXTRA_ARGS="--partition=default"
+# Select the cluster-specific sbatch defaults.
+SLURM_CLUSTER_PROFILE=spur-v2
+
+# Optional extra sbatch args appended after the selected profile.
+SBATCH_EXTRA_ARGS=
 ```
 
 The recommended authentication mode is a GitHub App installed on each repository
@@ -98,7 +101,8 @@ GHA_REPOS=ROCm/ATOM
 
 # Spur / Slurm
 SLURM_BIN_DIR=
-SBATCH_EXTRA_ARGS="--partition=default"
+SLURM_CLUSTER_PROFILE=spur-v2
+SBATCH_EXTRA_ARGS=
 SLURM_LOG_DIR=logs
 
 # Poller settings
@@ -200,26 +204,65 @@ When a queued GitHub Actions job has a matching `slurm-runner*` label, the polle
 submits an `sbatch --parsable ... allocation_scripts/spur_basic.sh ...` command.
 The runner logs are written under `SLURM_LOG_DIR`, which defaults to `logs`.
 
-### 4. Spur partition examples
+### 4. Cluster profiles
 
-Keep cluster-level Slurm options in `SBATCH_EXTRA_ARGS`, such as partition,
-account, or QoS. GPU count should normally come from the `slurm-runner-mi355x-*gpu`
-label.
+Keep cluster-level Slurm options in a profile, such as partition, account, QoS,
+constraints, or reservations. GPU count should normally come from the
+`slurm-runner-mi355x-*gpu` label.
+
+Built-in profiles live in `cluster_profiles.json`:
 
 ```bash
-SBATCH_EXTRA_ARGS="--partition=default"
+SLURM_CLUSTER_PROFILE=spur-v2
 ```
 
 For the non-v2 Spur cluster, use:
 
 ```bash
-SBATCH_EXTRA_ARGS="--partition=amd-spur"
+SLURM_CLUSTER_PROFILE=spur
 ```
 
 Then choose the GPU count in the workflow label:
 
 ```yaml
 runs-on: [self-hosted, slurm-runner-mi355x-8gpu]
+```
+
+For another restricted cluster, add a profile:
+
+```json
+{
+  "restricted-spur": {
+    "description": "Restricted Spur cluster",
+    "sbatch_extra_args": [
+      "--partition=restricted",
+      "--account=my-account",
+      "--qos=my-qos",
+      "--constraint=my-constraint"
+    ]
+  }
+}
+```
+
+Then select it in `.env`:
+
+```bash
+SLURM_CLUSTER_PROFILE=restricted-spur
+```
+
+If you do not want to edit the repo copy of `cluster_profiles.json`, put profiles
+in a separate file and point the poller at it:
+
+```bash
+SLURM_CLUSTER_PROFILES_FILE=/secure/path/to/cluster_profiles.json
+SLURM_CLUSTER_PROFILE=restricted-spur
+```
+
+`SBATCH_EXTRA_ARGS` is still supported and is appended after the selected profile.
+Use it for temporary overrides:
+
+```bash
+SBATCH_EXTRA_ARGS="--reservation=my-reservation"
 ```
 
 If a cluster uses a different GRES name, update the GPU mappings in

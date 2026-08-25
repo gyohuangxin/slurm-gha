@@ -1,0 +1,10 @@
+{
+  "spur-v2": {
+    "description": "Crusoe Spur v2 cluster",
+    "sbatch_extra_args": ["--partition=default"]
+  },
+  "spur": {
+    "description": "Crusoe Spur non-v2 cluster",
+    "sbatch_extra_args": ["--partition=amd-spur"]
+  }
+}

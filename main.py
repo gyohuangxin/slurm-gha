@@ -16,6 +16,7 @@ from config import (
     REPOS_TO_MONITOR,
     RESOURCE_LABEL_PREFIX,
     SBATCH_EXTRA_ARGS,
+    SLURM_CLUSTER_PROFILE,
     SLURM_BIN_DIR,
     SLURM_LOG_DIR,
 )
@@ -554,6 +555,8 @@ if __name__ == "__main__":
     logger.info(f"  Thread sleep timeout: {THREAD_SLEEP_TIMEOUT}s")
     logger.info(f"  Repositories: {[repo['name'] for repo in REPOS_TO_MONITOR]}")
     logger.info(f"  Runner allocation script: {ALLOCATE_RUNNER_SCRIPT}")
+    logger.info(f"  Slurm cluster profile: {SLURM_CLUSTER_PROFILE or '(none)'}")
+    logger.info(f"  sbatch extra args: {SBATCH_EXTRA_ARGS}")
 
     # Thread to poll GitHub for new queued workflows
     github_thread = threading.Thread(

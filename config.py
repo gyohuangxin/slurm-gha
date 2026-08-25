@@ -1,10 +1,14 @@
 import os
+import json
 import shlex
+from pathlib import Path
 
 from dotenv import load_dotenv
 
 
 load_dotenv()
+
+BASE_DIR = Path(__file__).resolve().parent
 
 
 def env_bool(name, default=False):
@@ -35,6 +39,45 @@ def parse_repos():
     return entries
 
 
+def load_cluster_profiles():
+    profile_file = os.getenv("SLURM_CLUSTER_PROFILES_FILE") or str(
+        BASE_DIR / "cluster_profiles.json"
+    )
+
+    path = Path(profile_file)
+    if not path.exists():
+        raise RuntimeError(f"Cluster profile file not found: {profile_file}")
+
+    with path.open(encoding="utf-8") as f:
+        data = json.load(f)
+
+    if not isinstance(data, dict):
+        raise RuntimeError(f"Cluster profile file must contain a JSON object: {profile_file}")
+    return data
+
+
+def parse_cluster_profile_args(profile_name):
+    if not profile_name:
+        return []
+
+    profiles = load_cluster_profiles()
+    if profile_name not in profiles:
+        available = ", ".join(sorted(profiles)) or "none"
+        raise RuntimeError(
+            f"Unknown SLURM_CLUSTER_PROFILE={profile_name!r}. Available profiles: {available}"
+        )
+
+    profile = profiles[profile_name]
+    args = profile.get("sbatch_extra_args", [])
+    if isinstance(args, str):
+        return shlex.split(args)
+    if isinstance(args, list) and all(isinstance(arg, str) for arg in args):
+        return args
+    raise RuntimeError(
+        f"Cluster profile {profile_name!r} field 'sbatch_extra_args' must be a string or string list"
+    )
+
+
 ALLOCATE_RUNNER_SCRIPT_PATH = os.getenv(
     "ALLOCATE_RUNNER_SCRIPT_PATH", "allocation_scripts/spur_basic.sh"
 )
@@ -48,6 +91,8 @@ SLURM_BIN_DIR = os.getenv("SLURM_BIN_DIR", "")
 SLURM_LOG_DIR = os.getenv("SLURM_LOG_DIR", "logs")
 RESOURCE_LABEL_PREFIX = os.getenv("RESOURCE_LABEL_PREFIX", "slurm-runner")
 INCLUDE_TMPDISK_GRES = env_bool("INCLUDE_TMPDISK_GRES", False)
-SBATCH_EXTRA_ARGS = shlex.split(os.getenv("SBATCH_EXTRA_ARGS", ""))
+SLURM_CLUSTER_PROFILE = os.getenv("SLURM_CLUSTER_PROFILE", "").strip()
+SBATCH_PROFILE_ARGS = parse_cluster_profile_args(SLURM_CLUSTER_PROFILE)
+SBATCH_EXTRA_ARGS = SBATCH_PROFILE_ARGS + shlex.split(os.getenv("SBATCH_EXTRA_ARGS", ""))
 
 REPOS_TO_MONITOR = parse_repos()
