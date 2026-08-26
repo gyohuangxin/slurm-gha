@@ -222,6 +222,12 @@ For the non-v2 Spur cluster, use:
 SLURM_CLUSTER_PROFILE=spur
 ```
 
+The built-in `spur` profile expands to:
+
+```bash
+--partition=amd-spur --qos=amd-burst-qos
+```
+
 Then choose the GPU count in the workflow label:
 
 ```yaml
