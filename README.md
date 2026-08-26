@@ -225,7 +225,7 @@ SLURM_CLUSTER_PROFILE=spur
 The built-in `spur` profile expands to:
 
 ```bash
---partition=amd-spur --qos=amd-burst-qos
+--partition=amd-spur --qos=amd-aifw-dev-qos
 ```
 
 Then choose the GPU count in the workflow label:

@@ -5,6 +5,6 @@
   },
   "spur": {
     "description": "Crusoe Spur non-v2 cluster",
-    "sbatch_extra_args": ["--partition=amd-spur", "--qos=amd-burst-qos"]
+    "sbatch_extra_args": ["--partition=amd-spur", "--qos=amd-aifw-dev-qos"]
   }
 }
