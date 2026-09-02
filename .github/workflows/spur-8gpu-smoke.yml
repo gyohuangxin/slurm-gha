@@ -6,7 +6,7 @@ on:
 jobs:
   smoke-8gpu:
     name: MI355X 8GPU smoke
-    runs-on: [self-hosted, slurm-runner-mi355x-8gpu]
+    runs-on: [self-hosted, spur-runner-mi355x-8gpu]
     timeout-minutes: 30
 
     steps:
