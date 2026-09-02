@@ -8,6 +8,8 @@ def get_runner_resources(runner_label):
     Based on https://github.com/WATonomous/infra-config/blob/b604376f4ee9fa3336b11dc084ba90b962ec7ee1/kubernetes/github-arc/get-config.py#L120-L142
     """
     TMPDISK_DEFAULT = 16 * 1045  # 16 GiB
+    if runner_label.startswith("spur-runner-"):
+        runner_label = "slurm-runner-" + runner_label[len("spur-runner-") :]
 
     if runner_label == "slurm-runner-small":
         return {"cpu": 1, "mem-per-cpu": "2G", "tmpdisk": 4096, "time": "00:30:00"}
