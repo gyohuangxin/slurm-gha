@@ -83,5 +83,32 @@ log "Registering runner ${RUNNER_NAME} with labels ${LABELS}"
     --disableupdate
 
 log "Starting runner ${RUNNER_NAME}"
-./run.sh
-log "Runner ${RUNNER_NAME} finished"
+IDLE_TIMEOUT_SECONDS=${SPUR_RUNNER_IDLE_TIMEOUT_SECONDS:-600}
+RUNNER_OUTPUT="${RUNNER_DIR}/runner-output.log"
+set +e
+./run.sh > >(tee -a "${RUNNER_OUTPUT}") 2>&1 &
+runner_pid=$!
+(
+    slept=0
+    while kill -0 "${runner_pid}" 2>/dev/null; do
+        if grep -q "Running job:" "${RUNNER_OUTPUT}" 2>/dev/null; then
+            exit 0
+        fi
+        if [ "${slept}" -ge "${IDLE_TIMEOUT_SECONDS}" ]; then
+            log "Runner ${RUNNER_NAME} was idle for ${IDLE_TIMEOUT_SECONDS}s. Stopping it."
+            kill "${runner_pid}" 2>/dev/null || true
+            sleep 10
+            kill -9 "${runner_pid}" 2>/dev/null || true
+            exit 0
+        fi
+        sleep 5
+        slept=$((slept + 5))
+    done
+) &
+idle_watchdog_pid=$!
+wait "${runner_pid}"
+runner_rc=$?
+kill "${idle_watchdog_pid}" 2>/dev/null || true
+set -e
+log "Runner ${RUNNER_NAME} finished with rc=${runner_rc}"
+exit "${runner_rc}"

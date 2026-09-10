@@ -15,6 +15,8 @@ from config import (
     INCLUDE_TMPDISK_GRES,
     REPOS_TO_MONITOR,
     RESOURCE_LABEL_PREFIX,
+    RESOURCE_LABEL_ALIASES,
+    RESOURCE_LABEL_CAPS,
     SBATCH_EXTRA_ARGS,
     SLURM_CLUSTER_PROFILE,
     SLURM_BIN_DIR,
@@ -68,6 +70,8 @@ POLLED_WITHOUT_ALLOCATING = False
 
 def find_runner_size_label(labels):
     for label in labels:
+        if label in RESOURCE_LABEL_ALIASES:
+            return label
         if label == RESOURCE_LABEL_PREFIX or label.startswith(f"{RESOURCE_LABEL_PREFIX}-"):
             return label
     return None
@@ -80,6 +84,53 @@ def parse_sbatch_job_id(output):
     # Slurm and Spur both support --parsable. Some schedulers append extra fields
     # separated by semicolons; keep the numeric job id only.
     return int(output.splitlines()[-1].split(";")[0].split()[-1])
+
+
+def count_slurm_runner_jobs(runner_size_label):
+    """Count live Slurm jobs for a runner label, including jobs from old pollers."""
+    user = os.getenv("USER", "")
+    command = ["squeue", "-o", "%j|%T"]
+    if user:
+        command[1:1] = ["-u", user]
+
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=SLURM_COMMAND_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        logger.warning(
+            f"Unable to verify cap for {runner_size_label}: squeue timed out after "
+            f"{SLURM_COMMAND_TIMEOUT} seconds"
+        )
+        return None
+    except Exception as e:
+        logger.warning(f"Unable to verify cap for {runner_size_label}: {e}")
+        return None
+
+    if result.returncode != 0:
+        logger.warning(
+            f"Unable to verify cap for {runner_size_label}: squeue failed with "
+            f"return code {result.returncode}: {result.stderr.strip()}"
+        )
+        return None
+
+    prefix = f"gha-{runner_size_label}-"
+    active_states = {"PENDING", "RUNNING", "CONFIGURING", "COMPLETING"}
+    count = 0
+    for line in result.stdout.splitlines():
+        if "|" not in line:
+            continue
+        name, state = line.split("|", 1)
+        name = name.strip()
+        state = state.strip().upper()
+        if name == "NAME":
+            continue
+        if name.startswith(prefix) and state in active_states:
+            count += 1
+    return count
 
 
 def get_gh_api(url, github_auth, etag=None):
@@ -283,8 +334,42 @@ def allocate_actions_runner(job_id, github_auth, repo_api_base_url, repo_url, re
             del allocated_jobs[(repo_name, job_id)]
             return False
 
+        cap = RESOURCE_LABEL_CAPS.get(runner_size_label)
+        if cap is not None:
+            # Only count in-process allocations that have not reached Slurm yet.
+            # Completed Slurm jobs can occasionally remain in allocated_jobs if
+            # status polling misses the terminal state, so live Slurm state is
+            # the source of truth once a Slurm job id exists.
+            pre_submit_active = sum(
+                1
+                for key, running_job in allocated_jobs.items()
+                if key != (repo_name, job_id)
+                and running_job is not None
+                and getattr(running_job, "slurm_job_id", None) is None
+                and runner_size_label in running_job.labels
+            )
+            slurm_active = count_slurm_runner_jobs(runner_size_label)
+            if slurm_active is None:
+                logger.info(
+                    f"Skipping job because label {runner_size_label} cap cannot be verified."
+                )
+                del allocated_jobs[(repo_name, job_id)]
+                return False
+            active = pre_submit_active + slurm_active
+            if active >= cap:
+                logger.info(
+                    f"Skipping job because label {runner_size_label} "
+                    f"already has {active}/{cap} allocated runner(s) "
+                    f"(pre_submit={pre_submit_active}, slurm={slurm_active})."
+                )
+                del allocated_jobs[(repo_name, job_id)]
+                return False
+
+        resource_lookup_label = RESOURCE_LABEL_ALIASES.get(runner_size_label, runner_size_label)
         logger.info(f"Using runner size label: {runner_size_label}")
-        runner_resources = get_runner_resources(runner_size_label)
+        if resource_lookup_label != runner_size_label:
+            logger.info(f"Resource alias: {runner_size_label} -> {resource_lookup_label}")
+        runner_resources = get_runner_resources(resource_lookup_label)
         os.makedirs(SLURM_LOG_DIR, exist_ok=True)
 
         # Create runner tokens only after confirming this job targets Slurm.

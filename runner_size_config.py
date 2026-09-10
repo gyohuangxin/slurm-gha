@@ -70,7 +70,7 @@ def get_runner_resources(runner_label):
             "cpu": 128,
             "mem-per-cpu": "2G",
             "tmpdisk": TMPDISK_DEFAULT,
-            "time": "00:30:00",
+            "time": "01:00:00",
             "gres": "gpu:mi355x:8",
         }
     elif runner_label.startswith("slurm-runner-"):

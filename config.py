@@ -25,6 +25,19 @@ def env_int(name, default):
     return int(value)
 
 
+def parse_key_value_map(name, value_parser=str):
+    raw = os.getenv(name, "")
+    result = {}
+    for item in [part.strip() for part in raw.split(",") if part.strip()]:
+        if "=" not in item:
+            raise RuntimeError(f"{name} entries must use source=target format: {item!r}")
+        key, value = [part.strip() for part in item.split("=", 1)]
+        if not key or not value:
+            raise RuntimeError(f"{name} entries must not be empty: {item!r}")
+        result[key] = value_parser(value)
+    return result
+
+
 def parse_repos():
     repos = os.getenv("GHA_REPOS", os.getenv("GITHUB_REPOSITORY", ""))
     entries = []
@@ -90,6 +103,8 @@ THREAD_SLEEP_TIMEOUT = env_int("THREAD_SLEEP_TIMEOUT", 10)
 SLURM_BIN_DIR = os.getenv("SLURM_BIN_DIR", "")
 SLURM_LOG_DIR = os.getenv("SLURM_LOG_DIR", "logs")
 RESOURCE_LABEL_PREFIX = os.getenv("RESOURCE_LABEL_PREFIX", "slurm-runner")
+RESOURCE_LABEL_ALIASES = parse_key_value_map("RESOURCE_LABEL_ALIASES")
+RESOURCE_LABEL_CAPS = parse_key_value_map("RESOURCE_LABEL_CAPS", int)
 INCLUDE_TMPDISK_GRES = env_bool("INCLUDE_TMPDISK_GRES", False)
 SLURM_CLUSTER_PROFILE = os.getenv("SLURM_CLUSTER_PROFILE", "").strip()
 SBATCH_PROFILE_ARGS = parse_cluster_profile_args(SLURM_CLUSTER_PROFILE)
